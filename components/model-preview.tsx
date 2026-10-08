@@ -5,8 +5,8 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {createSoftwarePreview} from '@/lib/software-preview';
 import {Maximize,RotateCw,Grid2X2,Box,Scan,Pause} from 'lucide-react';
 
-type Props={model:any;color:string;wireframe:boolean;setWireframe:(v:boolean)=>void;view:string;setView:(v:string)=>void;updating?:boolean;error?:string};
-export default function ModelPreview({model,color,wireframe,setWireframe,view,setView,updating=false,error:previewError=''}:Props){
+type Props={model:any;color:string;wireframe:boolean;setWireframe:(v:boolean)=>void;view:string;setView:(v:string)=>void;updating?:boolean;error?:string;fitKey?:string};
+export default function ModelPreview({model,color,wireframe,setWireframe,view,setView,updating=false,error:previewError='',fitKey}:Props){
  const host=useRef<HTMLDivElement>(null),api=useRef<any>(null),[error,setError]=useState(''),[spin,setSpin]=useState(false),[grid,setGrid]=useState(true);
  const latest=useRef(model),firstModel=useRef(true);latest.current=model;
  useEffect(()=>{
@@ -37,7 +37,8 @@ export default function ModelPreview({model,color,wireframe,setWireframe,view,se
   const onKey=(e:KeyboardEvent)=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','-'].includes(e.key)){e.preventDefault();const relative=camera.position.clone().sub(controls.target);const sph=new THREE.Spherical().setFromVector3(relative);if(e.key==='ArrowLeft')sph.theta-=.12;if(e.key==='ArrowRight')sph.theta+=.12;if(e.key==='ArrowUp')sph.phi=Math.max(.01,sph.phi-.12);if(e.key==='ArrowDown')sph.phi=Math.min(Math.PI-.01,sph.phi+.12);if(e.key==='+')sph.radius*=.9;if(e.key==='-')sph.radius*=1.1;camera.position.copy(new THREE.Vector3().setFromSpherical(sph).add(controls.target));controls.update();}};renderer.domElement.addEventListener('keydown',onKey);
   return()=>{disposed=true;if(frame!==null)cancelAnimationFrame(frame);controls.removeEventListener('change',invalidate);ro.disconnect();controls.dispose();mesh.geometry.dispose();material.dispose();cavityMaterial.dispose();shellMaterial.dispose();floor.geometry.dispose();(floor.material as THREE.Material).dispose();lines.geometry.dispose();lineMat.dispose();renderer.dispose();renderer.domElement.removeEventListener('keydown',onKey);renderer.domElement.remove();api.current=null;};
  },[]);
- useEffect(()=>{api.current?.setModel(model);if(firstModel.current&&model.indices.length){api.current?.fit(view);firstModel.current=false;}},[model]);
+ useEffect(()=>{firstModel.current=true;},[fitKey]);
+ useEffect(()=>{api.current?.setModel(model);if(firstModel.current&&model.indices.length&&!updating){api.current?.fit(view);firstModel.current=false;}},[model,updating,view]);
  useEffect(()=>{api.current?.setAppearance(color,wireframe);},[color,wireframe,model]);
  useEffect(()=>{api.current?.setAuto(spin);},[spin]);
  useEffect(()=>{api.current?.setGrid(grid&&view!=='bottom');},[view,grid]);
