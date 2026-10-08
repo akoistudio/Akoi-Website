@@ -2,8 +2,7 @@
 import { Download, FileJson, Check, LoaderCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePreparedSTL } from '@/hooks/use-prepared-stl';
-import { diffuserFit } from '@/lib/diffuser-model.mjs';
-import { useMemo } from 'react';
+import { useFitChecks } from './fit-context';
 import { useLampProject, type Part, type Project } from './project-context';
 import { partNames } from './catalog';
 
@@ -16,6 +15,53 @@ export function downloadProject(project: Project, name: string) {
   a.download = `${name.replace(/[^a-z0-9_-]/gi, '-') || 'akoi-design'}.akoi.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+export function STLDownloadButton({
+  params,
+  label,
+  valid = true,
+  reason = '',
+}: {
+  params: Project[Part];
+  label: string;
+  valid?: boolean;
+  reason?: string;
+}) {
+  const file = usePreparedSTL(params);
+  return (
+    <>
+      <button
+        className="export-button"
+        disabled={!valid || file.status === 'preparing'}
+        onClick={async () => {
+          try {
+            await file.download();
+            toast.success('STL download requested.');
+          } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') return;
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : 'Could not export this part.',
+            );
+          }
+        }}
+      >
+        {file.status === 'preparing' ? (
+          <LoaderCircle size={16} className="loading-icon" />
+        ) : (
+          <Download size={16} />
+        )}
+        {file.status === 'preparing' ? 'Preparing…' : label}
+      </button>
+      {file.error && (
+        <p role="alert" className="design-error">
+          {file.error}
+        </p>
+      )}
+      {!valid && reason && <p className="control-note">{reason}</p>}
+    </>
+  );
 }
 function STLDownload({
   part,
@@ -30,7 +76,6 @@ function STLDownload({
   valid?: boolean;
   reason?: string;
 }) {
-  const file = usePreparedSTL(params);
   return (
     <div className="export-card">
       <div className="export-card-head">
@@ -47,45 +92,18 @@ function STLDownload({
               : 'Smooth inner diffuser'}{' '}
         · {params.height} mm high
       </p>
-      <a
-        className="export-button"
-        role="button"
-        href={valid && file.status === 'ready' ? file.url : undefined}
-        download={file.filename}
-        aria-disabled={!valid || file.status !== 'ready'}
-        onClick={(event) => {
-          if (!valid || file.status !== 'ready') {
-            event.preventDefault();
-            toast.error(
-              !valid ? reason : file.error || 'The STL is still preparing.',
-            );
-          } else toast.success(`${partNames[part]} STL download requested.`);
-        }}
-      >
-        {file.status === 'preparing' ? (
-          <LoaderCircle size={16} className="loading-icon" />
-        ) : (
-          <Download size={16} />
-        )}
-        {file.status === 'preparing'
-          ? 'Preparing…'
-          : `Download ${partNames[part].toLowerCase()} STL`}
-      </a>
-      {file.error && (
-        <p role="alert" className="design-error">
-          {file.error}
-        </p>
-      )}
-      {!valid && <p className="control-note">{reason}</p>}
+      <STLDownloadButton
+        params={params}
+        label={`Download ${partNames[part].toLowerCase()} STL`}
+        valid={valid}
+        reason={reason}
+      />
     </div>
   );
 }
 export default function ExportPanel() {
   const { project, active } = useLampProject();
-  const fit = useMemo(
-    () => diffuserFit(project.diffuser, project.shade),
-    [project.diffuser, project.shade],
-  );
+  const { diffuser: fit, diffuserUpdating, diffuserError } = useFitChecks();
   return (
     <>
       <div className="export-intro">
@@ -107,8 +125,12 @@ export default function ExportPanel() {
         part="diffuser"
         params={project.diffuser}
         included={project.diffuserEnabled}
-        valid={fit.valid}
-        reason={fit.issues.join(' ')}
+        valid={fit.valid && !diffuserUpdating && !diffuserError}
+        reason={
+          diffuserUpdating
+            ? 'Checking diffuser fit…'
+            : diffuserError || fit.issues.join(' ')
+        }
       />
       <section className="control-section">
         <h2>Keep an editable copy</h2>

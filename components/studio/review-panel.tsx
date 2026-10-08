@@ -1,30 +1,13 @@
 'use client';
 import { Check, AlertCircle, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useMemo } from 'react';
 import { Slider } from './slider';
 import { Switch } from '@/components/ui/switch';
 import PrintPanel from '@/components/print-panel';
-import { mountingMatch } from '@/lib/assembly.mjs';
 import { matchShadeBase } from '@/lib/base-model.mjs';
-import { lidMatches } from '@/lib/lid-model.mjs';
-import { diffuserFit } from '@/lib/diffuser-model.mjs';
-import { e27Fit } from '@/lib/e27-fit.mjs';
-import { generateModel } from '@/lib/model.mjs';
+import { emptyPreview } from '@/hooks/use-preview-model';
+import { useFitChecks } from './fit-context';
 import { useLampProject, type Part, type Stage } from './project-context';
-
-export function useFitChecks() {
-  const { project } = useLampProject();
-  return useMemo(
-    () => ({
-      mount: mountingMatch(project),
-      lid: lidMatches(project.lid, project.shade),
-      diffuser: diffuserFit(project.diffuser, project.shade),
-      holder: e27Fit(project.shade, project.base),
-    }),
-    [project],
-  );
-}
 
 export function FitSummary({
   navigate,
@@ -35,7 +18,13 @@ export function FitSummary({
 }) {
   const { project } = useLampProject(),
     checks = useFitChecks();
-  const rows = [
+  const rows: {
+    name: string;
+    part: Part;
+    ok: boolean;
+    detail: string;
+    pending?: boolean;
+  }[] = [
     {
       name: 'Base mounting',
       part: 'base' as Part,
@@ -49,10 +38,17 @@ export function FitSummary({
           {
             name: 'Holder & bulb',
             part: 'base' as Part,
-            ok: checks.holder.valid,
-            detail: checks.holder.valid
-              ? `Estimated radial gap ${checks.holder.clearance.toFixed(1)} mm.`
-              : checks.holder.issues.join(' '),
+            ok:
+              checks.holder.valid &&
+              !checks.holderUpdating &&
+              !checks.holderError,
+            pending: checks.holderUpdating,
+            detail: checks.holderUpdating
+              ? 'Checking holder fit…'
+              : checks.holderError ||
+                (checks.holder.valid
+                  ? `Estimated radial gap ${checks.holder.clearance.toFixed(1)} mm.`
+                  : checks.holder.issues.join(' ')),
           },
         ]
       : []),
@@ -73,10 +69,17 @@ export function FitSummary({
           {
             name: 'Diffuser clearance',
             part: 'diffuser' as Part,
-            ok: checks.diffuser.valid,
-            detail: checks.diffuser.valid
-              ? `Minimum radial gap ${checks.diffuser.clearance.toFixed(1)} mm.`
-              : checks.diffuser.issues.join(' '),
+            ok:
+              checks.diffuser.valid &&
+              !checks.diffuserUpdating &&
+              !checks.diffuserError,
+            pending: checks.diffuserUpdating,
+            detail: checks.diffuserUpdating
+              ? 'Checking diffuser fit…'
+              : checks.diffuserError ||
+                (checks.diffuser.valid
+                  ? `Minimum radial gap ${checks.diffuser.clearance.toFixed(1)} mm.`
+                  : checks.diffuser.issues.join(' ')),
           },
         ]
       : []),
@@ -94,7 +97,9 @@ export function FitSummary({
             <strong>{row.name}</strong>
             {!compact && <small>{row.detail}</small>}
           </span>
-          <small>{row.ok ? 'Matched' : 'Review'}</small>
+          <small>
+            {row.pending ? 'Checking…' : row.ok ? 'Matched' : 'Review'}
+          </small>
         </button>
       ))}
     </div>
@@ -102,7 +107,8 @@ export function FitSummary({
 }
 
 type Props = {
-  shadeModel: ReturnType<typeof generateModel>;
+  shadeModel: ReturnType<typeof emptyPreview>;
+  updating: boolean;
   gap: number;
   setGap: (value: number) => void;
   showHardware: boolean;
@@ -113,6 +119,7 @@ type Props = {
 };
 export default function ReviewPanel({
   shadeModel,
+  updating,
   gap,
   setGap,
   showHardware,
@@ -235,6 +242,7 @@ export default function ReviewPanel({
         <summary>Shade printer checks</summary>
         <PrintPanel
           model={shadeModel}
+          updating={updating}
           onChange={(patch) => edit('shade', patch)}
         />
       </details>

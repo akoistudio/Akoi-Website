@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { Check, Magnet, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Slider } from './slider';
@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useLampProject, type Stage, type Part } from './project-context';
 import { e27Opening } from '@/lib/e27-base.mjs';
-import { e27Fit } from '@/lib/e27-fit.mjs';
+import { useFitChecks } from './fit-context';
 import {
   BASE_DEFAULTS,
   BASE_SHAPES,
@@ -157,7 +157,7 @@ export default function BaseControls({
       toast.error(e instanceof Error ? e.message : 'Could not match the base.');
     }
   };
-  const fit = useMemo(() => e27Fit(project.shade, p), [project.shade, p]);
+  const { holder: fit, holderUpdating, holderError } = useFitChecks();
   const c = (name: Key, title: string, note?: string, unit = 'mm') => (
     <BaseControl
       key={name}
@@ -472,9 +472,12 @@ export default function BaseControls({
               </div>
             </dl>
             <p className="control-note" role="status">
-              {fit.valid
-                ? `Geometry fit passes · minimum estimated gap ${fit.clearance.toFixed(1)} mm.`
-                : fit.issues.join(' ')}
+              {holderUpdating
+                ? 'Checking holder fit…'
+                : holderError ||
+                  (fit.valid
+                    ? `Geometry fit passes · minimum estimated gap ${fit.clearance.toFixed(1)} mm.`
+                    : fit.issues.join(' '))}
             </p>
             <button
               className="inspect-bottom"

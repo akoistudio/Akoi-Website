@@ -1,10 +1,11 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
-import { Download, Check, Magnet } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Check, Magnet } from 'lucide-react';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from './slider';
-import { usePreparedSTL } from '@/hooks/use-prepared-stl';
+import { STLDownloadButton } from './export-panel';
+import { useFitChecks } from './fit-context';
 import {
   useLampProject,
   type Stage,
@@ -15,7 +16,6 @@ import { ShapePicker, TexturePicker } from './pickers';
 import {
   DIFFUSER_DEFAULTS,
   DIFFUSER_LIMITS,
-  diffuserFit,
   matchDiffuser,
 } from '@/lib/diffuser-model.mjs';
 import { maxPanelRibs } from '@/lib/flowing-folds.mjs';
@@ -781,8 +781,11 @@ export function DiffuserControls() {
       commit({ ...project, diffuser: next }),
     setDiffuserEnabled = (enabled: boolean) =>
       commit({ ...project, diffuserEnabled: enabled });
-  const diffuserCheck = useMemo(() => diffuserFit(diffuser, p), [diffuser, p]),
-    diffuserFile = usePreparedSTL(diffuser);
+  const {
+    diffuser: diffuserCheck,
+    diffuserUpdating,
+    diffuserError,
+  } = useFitChecks();
   return (
     <>
       <section>
@@ -833,40 +836,28 @@ export function DiffuserControls() {
           Fit diffuser to shade
         </button>
         <p className="control-note" role="status">
-          {diffuserCheck.valid
-            ? `Fit checked · minimum radial gap ${diffuserCheck.clearance.toFixed(1)} mm. Review bulb clearance separately.`
-            : diffuserCheck.issues.join(' ')}
+          {diffuserUpdating
+            ? 'Checking diffuser fit…'
+            : diffuserError ||
+              (diffuserCheck.valid
+                ? `Fit checked · minimum radial gap ${diffuserCheck.clearance.toFixed(1)} mm. Review bulb clearance separately.`
+                : diffuserCheck.issues.join(' '))}
         </p>
         <p className="control-note">
           Use the preview toolbar to inspect both layers, the outer shade, or
           the inner diffuser.
         </p>
-        <a
-          className="export-button"
-          role="button"
-          aria-disabled={
-            !diffuserCheck.valid || diffuserFile.status !== 'ready'
+        <STLDownloadButton
+          params={diffuser}
+          label="Export inner diffuser STL"
+          valid={diffuserCheck.valid && !diffuserUpdating && !diffuserError}
+          reason={
+            diffuserUpdating
+              ? 'Checking diffuser fit…'
+              : diffuserError || diffuserCheck.issues.join(' ')
           }
-          href={
-            diffuserCheck.valid && diffuserFile.status === 'ready'
-              ? diffuserFile.url
-              : undefined
-          }
-          download={diffuserFile.filename}
-          onClick={(e) => {
-            if (!diffuserCheck.valid || diffuserFile.status !== 'ready') {
-              e.preventDefault();
-              toast.error(
-                diffuserCheck.valid
-                  ? diffuserFile.error || 'Preparing diffuser STL…'
-                  : diffuserCheck.issues.join(' '),
-              );
-            }
-          }}
-        >
-          <Download size={16} />
-          Export inner diffuser STL
-        </a>
+        />
+
         <p className="control-note">
           Downloads the diffuser as a separate part. Use normal printing for the
           flange and socket; inspect both parts in your slicer.

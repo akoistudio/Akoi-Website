@@ -14,18 +14,9 @@ import {
 import { Toaster, toast } from 'sonner';
 import ModelPreview from '@/components/model-preview';
 import DesignManager from '@/components/design-manager';
-import {
-  generateModel,
-  DEFAULTS,
-  BASE,
-  SHAPES,
-  TEXTURES,
-  LIMITS,
-} from '@/lib/model.mjs';
-import { generateBase, BASE_DEFAULTS } from '@/lib/base-model.mjs';
-import { generateLid } from '@/lib/lid-model.mjs';
-import { generateDiffuser, layeredShade } from '@/lib/diffuser-model.mjs';
-import { assembleLamp } from '@/lib/assembly.mjs';
+import { DEFAULTS, BASE, SHAPES, TEXTURES, LIMITS } from '@/lib/model.mjs';
+import { BASE_DEFAULTS } from '@/lib/base-model.mjs';
+import { usePreviewModel, emptyPreview } from '@/hooks/use-preview-model';
 import { usePreparedSTL } from '@/hooks/use-prepared-stl';
 import {
   useLampProject,
@@ -39,7 +30,8 @@ import ShadeControls from './shade-controls';
 import BaseControls from './base-controls';
 import LidControls from './lid-controls';
 import StartPanel from './start-panel';
-import ReviewPanel, { useFitChecks } from './review-panel';
+import ReviewPanel from './review-panel';
+import { FitChecksProvider, useFitChecks } from './fit-context';
 import ExportPanel from './export-panel';
 
 const stageParts: Record<Stage, Part[]> = {
@@ -50,14 +42,18 @@ const stageParts: Record<Stage, Part[]> = {
   review: [],
   export: [],
 };
-const previewResolution = { segments: 192, layers: 80, pocketSegments: 64 };
-export default function StudioWorkspace({
+type WorkspaceProps = { initialPart?: Part; initialStage?: Stage };
+export default function StudioWorkspace(props: WorkspaceProps) {
+  return (
+    <FitChecksProvider>
+      <WorkspaceContent {...props} />
+    </FitChecksProvider>
+  );
+}
+function WorkspaceContent({
   initialPart = 'shade',
   initialStage = 'start',
-}: {
-  initialPart?: Part;
-  initialStage?: Stage;
-}) {
+}: WorkspaceProps) {
   const {
     project,
     ready,
@@ -99,49 +95,41 @@ export default function StudioWorkspace({
   useEffect(() => {
     scroll.current?.scrollTo({ top: 0 });
   }, [stage, part]);
-  const shadeModel = useMemo(
-    () =>
-      project.shade.texture === 'woven'
-        ? generateModel(project.shade, previewResolution)
-        : generateModel(project.shade),
-    [project.shade],
+  const shadePreview = usePreviewModel(
+    'shade',
+    project.shade,
+    emptyPreview(project.shade),
+    ready && stage === 'review',
   );
-  const assembly = useMemo(
-    () => assembleLamp(project, gap, previewResolution, showHardware),
-    [project, gap, showHardware],
+  const assemblyPreview = usePreviewModel(
+    'assembly',
+    { project, gap, showHardware },
+    emptyPreview({
+      kind: 'assembly',
+      height: project.shade.height + project.base.height,
+      diameter: Math.max(project.shade.diameter, project.base.diameter),
+    }),
+    ready && previewMode === 'lamp',
   );
-  const focused = useMemo(
-    () =>
-      previewMode !== 'part'
-        ? null
-        : part === 'base'
-          ? generateBase(project.base)
-          : part === 'lid'
-            ? generateLid(project.lid)
-            : part === 'diffuser'
-              ? generateDiffuser(project.diffuser)
-              : project.diffuserEnabled
-                ? layeredShade(
-                    shadeModel,
-                    project.diffuser,
-                    layerView,
-                    project.finishes.shade,
-                    project.finishes.diffuser,
-                  )
-                : shadeModel,
-    [
-      previewMode,
-      part,
-      project.base,
-      project.lid,
-      project.diffuser,
-      project.diffuserEnabled,
-      project.finishes.shade,
-      project.finishes.diffuser,
-      shadeModel,
-      layerView,
-    ],
+  const layered = part === 'shade' && project.diffuserEnabled;
+  const focusedPreview = usePreviewModel(
+    layered ? 'layered' : part,
+    layered
+      ? {
+          shade: project.shade,
+          diffuser: project.diffuser,
+          mode: layerView,
+          color: project.finishes.shade,
+          innerColor: project.finishes.diffuser,
+        }
+      : project[part],
+    emptyPreview(project[part]),
+    ready && previewMode === 'part',
   );
+  const assembly = assemblyPreview.model,
+    focused = focusedPreview.model;
+  const selectedPreview =
+    previewMode === 'lamp' ? assemblyPreview : focusedPreview;
   const visibleModel = useMemo(
     () =>
       previewMode === 'part' && focused
@@ -152,6 +140,7 @@ export default function StudioWorkspace({
               positions: assembly.parts.hardware.positions,
               indices: assembly.parts.hardware.indices,
               colors: undefined,
+              normals: undefined,
             }
           : assembly,
     [previewMode, focused, inspectHardware, showHardware, assembly],
@@ -165,14 +154,18 @@ export default function StudioWorkspace({
         min[axis] = Math.min(min[axis], vertices[i + axis]);
         max[axis] = Math.max(max[axis], vertices[i + axis]);
       }
-    return max.map((n, i) => n - min[i]);
+    return vertices.length ? max.map((n, i) => n - min[i]) : [0, 0, 0];
   }, [visibleModel]);
   const checks = useFitChecks();
+  const checking =
+    (project.diffuserEnabled && checks.diffuserUpdating) ||
+    (project.base.e27Enabled && checks.holderUpdating);
   const attention =
     !checks.mount ||
     (project.lidEnabled && !checks.lid) ||
-    (project.diffuserEnabled && !checks.diffuser.valid) ||
-    (project.base.e27Enabled && !checks.holder.valid);
+    (project.diffuserEnabled &&
+      (!checks.diffuser.valid || !!checks.diffuserError)) ||
+    (project.base.e27Enabled && (!checks.holder.valid || !!checks.holderError));
   const included =
     2 + Number(project.lidEnabled) + Number(project.diffuserEnabled);
   const shadeFile = usePreparedSTL(project.shade),
@@ -186,10 +179,8 @@ export default function StudioWorkspace({
     (patch: Partial<Project['shade']>) => edit('shade', patch),
     [edit],
   );
-  const prepareDownload = useCallback(() => {
-    const file = fileRef.current;
-    if (file.status !== 'ready')
-      throw new Error(file.error || 'The STL is still preparing.');
+  const prepareDownload = useCallback(async () => {
+    const file = await fileRef.current.prepare();
     return {
       status: 'ready',
       filename: file.filename,
@@ -539,7 +530,8 @@ export default function StudioWorkspace({
                   ))}
                 {stage === 'review' && (
                   <ReviewPanel
-                    shadeModel={shadeModel}
+                    shadeModel={shadePreview.model}
+                    updating={shadePreview.updating}
                     gap={gap}
                     setGap={setGap}
                     showHardware={showHardware}
@@ -605,7 +597,11 @@ export default function StudioWorkspace({
             >
               {attention ? <Layers3 size={15} /> : <Check size={15} />}
               <span>
-                {attention ? 'Review connections' : 'Connections matched'}
+                {checking
+                  ? 'Checking connections…'
+                  : attention
+                    ? 'Review connections'
+                    : 'Connections matched'}
               </span>
             </button>
           </div>
@@ -651,6 +647,8 @@ export default function StudioWorkspace({
           </div>
           <ModelPreview
             model={visibleModel}
+            updating={selectedPreview.updating}
+            error={selectedPreview.error}
             color={previewMode === 'part' ? project.finishes[part] : '#ffffff'}
             wireframe={wireframe}
             setWireframe={setWireframe}

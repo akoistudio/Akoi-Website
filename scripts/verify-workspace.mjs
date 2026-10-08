@@ -8,6 +8,11 @@ import {
 import { DEFAULTS, applyParameterPatch } from '../lib/model.mjs';
 import { BASE_DEFAULTS, patchBase } from '../lib/base-model.mjs';
 import { mushroomProject } from '../lib/mushroom-project.mjs';
+import {
+  createPreviewBuilder,
+  PREVIEW_RESOLUTION,
+} from '../lib/preview-model.mjs';
+import { generateDiffuser, layeredShade } from '../lib/diffuser-model.mjs';
 
 const original = validateProject({
   format: 'akoi-design',
@@ -95,6 +100,40 @@ assert.deepEqual(
 );
 assert.equal(complete.format, 'akoi-design');
 assert.equal(complete.version, 1);
+const preview = createPreviewBuilder();
+const diffuser = preview('diffuser', complete.diffuser);
+const expectedDiffuser = generateDiffuser(
+  complete.diffuser,
+  PREVIEW_RESOLUTION,
+);
+assert.deepEqual(diffuser.positions, expectedDiffuser.positions);
+assert.deepEqual(diffuser.indices, expectedDiffuser.indices);
+assert.equal(
+  preview('diffuser', { ...complete.diffuser }),
+  diffuser,
+  'standalone diffuser inspection reuses existing preview geometry',
+);
+const layerInput = {
+  shade: complete.shade,
+  diffuser: complete.diffuser,
+  mode: 'both',
+  color: complete.finishes.shade,
+  innerColor: '#343331',
+};
+const layers = preview('layered', layerInput);
+const expectedLayers = layeredShade(
+  preview('shade', complete.shade),
+  complete.diffuser,
+  layerInput.mode,
+  layerInput.color,
+  layerInput.innerColor,
+);
+assert.deepEqual(layers.positions, expectedLayers.positions);
+assert.deepEqual(
+  layers.colors,
+  expectedLayers.colors,
+  'layer inspection preserves both chosen finishes',
+);
 console.log(
-  'PASS: project-wide undo/redo, single-step slider gestures, template recovery, redo branching, and editable-project compatibility.',
+  'PASS: project-wide undo/redo, single-step slider gestures, template recovery, editable-project compatibility, diffuser preview routing, and layer finishes.',
 );
