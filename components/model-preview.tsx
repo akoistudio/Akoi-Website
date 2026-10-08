@@ -5,8 +5,8 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {createSoftwarePreview} from '@/lib/software-preview';
 import {Maximize,RotateCw,Grid2X2,Box,Scan,Pause} from 'lucide-react';
 
-type Props={model:any;color:string;wireframe:boolean;setWireframe:(v:boolean)=>void;view:string;setView:(v:string)=>void};
-export default function ModelPreview({model,color,wireframe,setWireframe,view,setView}:Props){
+type Props={model:any;color:string;wireframe:boolean;setWireframe:(v:boolean)=>void;view:string;setView:(v:string)=>void;fitKey?:string};
+export default function ModelPreview({model,color,wireframe,setWireframe,view,setView,fitKey}:Props){
  const host=useRef<HTMLDivElement>(null),api=useRef<any>(null),[error,setError]=useState(''),[spin,setSpin]=useState(false),[grid,setGrid]=useState(true);
  const latest=useRef(model);latest.current=model;
  useEffect(()=>{
@@ -33,7 +33,8 @@ export default function ModelPreview({model,color,wireframe,setWireframe,view,se
   const onKey=(e:KeyboardEvent)=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','-'].includes(e.key)){e.preventDefault();const relative=camera.position.clone().sub(controls.target);const sph=new THREE.Spherical().setFromVector3(relative);if(e.key==='ArrowLeft')sph.theta-=.12;if(e.key==='ArrowRight')sph.theta+=.12;if(e.key==='ArrowUp')sph.phi=Math.max(.01,sph.phi-.12);if(e.key==='ArrowDown')sph.phi=Math.min(Math.PI-.01,sph.phi+.12);if(e.key==='+')sph.radius*=.9;if(e.key==='-')sph.radius*=1.1;camera.position.copy(new THREE.Vector3().setFromSpherical(sph).add(controls.target));controls.update();}};renderer.domElement.addEventListener('keydown',onKey);
   return()=>{cancelAnimationFrame(frame);ro.disconnect();controls.dispose();mesh.geometry.dispose();material.dispose();cavityMaterial.dispose();shellMaterial.dispose();floor.geometry.dispose();(floor.material as THREE.Material).dispose();lines.geometry.dispose();lineMat.dispose();renderer.dispose();renderer.domElement.removeEventListener('keydown',onKey);renderer.domElement.remove();api.current=null;};
  },[]);
- useEffect(()=>{api.current?.setModel(model);if(model.params.kind==='assembly')api.current?.fit(view);},[model]);
+ useEffect(()=>{api.current?.setModel(model);},[model]);
+ useEffect(()=>{api.current?.fit(view);},[fitKey,view]);
  useEffect(()=>{api.current?.setAppearance(color,wireframe);},[color,wireframe,model]);
  useEffect(()=>{api.current?.setAuto(spin);},[spin]);
  useEffect(()=>{api.current?.setGrid(grid&&view!=='bottom');api.current?.fit(view);},[view,grid]);
